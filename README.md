@@ -111,15 +111,15 @@ python3 --version
 
 docker --version
 
-#Project Setup
-#Step 1 — Login & Set Project
+####Project Setup
+###Step 1 — Login & Set Project
 
 gcloud auth login
 gcloud auth application-default login
 
 gcloud config set project YOUR_PROJECT_ID
 
-#Step 2 — Enable Required APIs
+####Step 2 — Enable Required APIs
 
 gcloud services enable \
   bigquery.googleapis.com \
@@ -127,40 +127,40 @@ gcloud services enable \
   cloudbuild.googleapis.com \
   storage.googleapis.com
 
-#Step 3 — Create Storage Bucket
+###Step 3 — Create Storage Bucket
 
 gsutil mb -l asia-south1 gs://YOUR_BUCKET_NAME
 
-#Step 4 — Create BigQuery Dataset
+###Step 4 — Create BigQuery Dataset
 
 bq mk --location=asia-south1 sustainability_ds
 
-#Step 5 — Create Tables
+###Step 5 — Create Tables
 
 bq mk \
 --table sustainability_ds.operations \
 product_id:STRING,units_sold:INTEGER,energy_kwh:FLOAT,transport_km:FLOAT,record_date:DATE
 
-##PRODUCT CATALOGUE
+###PRODUCT CATALOGUE
 
 bq mk \
 --table sustainability_ds.product_catalogue_table \
 product_id:STRING,product_name:STRING,category:STRING
 
-##UTILITY BILLS
+###UTILITY BILLS
 
 bq mk \
 --table sustainability_ds.utility_bills \
 month:DATE,region:STRING,bill_type:STRING,units:FLOAT
 
-##UPLOAD LOG
+###UPLOAD LOG
 
 bq mk \
 --table sustainability_ds.upload_log \
 upload_id:STRING,upload_time:TIMESTAMP,file_name:STRING,rows_loaded:INTEGER,status:STRING
 
-#CREATE ANALYTICS VIEWS
-#MONTHLY METRICS
+###CREATE ANALYTICS VIEWS
+###MONTHLY METRICS
 bq query --use_legacy_sql=false "
 CREATE OR REPLACE VIEW sustainability_ds.monthly_metrics AS
 SELECT
@@ -178,7 +178,7 @@ ON TRIM(UPPER(o.product_id))=TRIM(UPPER(p.product_id))
 GROUP BY month, product_id, p.product_name, p.category;
 "
 
-##BILL EMISSIONS
+###BILL EMISSIONS
 
 bq query --use_legacy_sql=false "
 CREATE OR REPLACE VIEW sustainability_ds.bill_emissions AS
@@ -198,7 +198,7 @@ FROM sustainability_ds.utility_bills
 GROUP BY month,region,bill_type;
 "
 
-##COMPANY EMISSIONS
+###COMPANY EMISSIONS
 
 bq query --use_legacy_sql=false "
 CREATE OR REPLACE VIEW sustainability_ds.company_emissions AS
@@ -219,9 +219,9 @@ SELECT
 FROM sustainability_ds.bill_emissions
 GROUP BY month;
 "
-#BACKEND SETUP
+###BACKEND SETUP
 
-#Step 1 — Install Dependencies
+###Step 1 — Install Dependencies
 
 fastapi
 uvicorn
@@ -229,35 +229,35 @@ google-cloud-bigquery
 google-cloud-storage
 python-multipart
 
-#Install
+###Install
 pip install -r requirements.txt
 
-#Step 2 - Local Test
+###Step 2 - Local Test
 
 uvicorn main:app --reload --port 8080
 
-#Visit:
+###Visit:
 http://localhost:8080
 
-#DEPLOY TO CLOUD RUN
-#STEP 1 - BUILD
+###DEPLOY TO CLOUD RUN
+###TEP 1 - BUILD
 
 glcoud builds submit
 
-#Step 2 - Deploy
+###Step 2 - Deploy
 
 gcloud run deploy sustainability-backend \
   --region asia-south1 \
   --allow-unauthenticated \
   --set-env-vars BUCKET_NAME=YOUR_BUCKET_NAME
 
-#CSV Format
+###CSV Format
 
 product_id,units_sold,energy_kwh,transport_km,record_date
 P1,100,40,120,2026-01-10
 P2,80,35,100,2026-01-15
 
-#Utility Bill Format
+###Utility Bill Format
 
 month,region,bill_type,units
 2026-01-01,India,electricity,900
