@@ -71,7 +71,9 @@
 <canvas id="billChart" height="120" width="800"></canvas>
 
 <h3>Total Company Carbon Footprint</h3>
-<canvas id="totalChart" height="120" width="800"></canvas>
+<canvas id="totalFootprintChart" height="120"></canvas>
+
+
 
 
 <!-- Metrics Table -->
@@ -84,10 +86,12 @@
       <th>Energy CO₂</th>
       <th>Transport CO₂</th>
       <th>Total CO₂</th>
+      <th>Sources</th>
     </tr>
   </thead>
   <tbody></tbody>
 </table>
+
 
 <!-- Upload History -->
 <h3>Upload History</h3>
@@ -151,7 +155,10 @@ async function loadTotalFootprint() {
   const json = await res.json();
   const data = json.data;
 
-  if (!data.length) return;
+  if (!data || data.length === 0) {
+  console.log("No footprint data");
+  return;
+}
 
   const labels = data.map(d => d.month);
 
@@ -160,7 +167,7 @@ async function loadTotalFootprint() {
   const utility = data.map(d => d.utility_co2);
 
   const ctx = document
-    .getElementById("totalChart")
+    .getElementById("totalFootprintChart")
     .getContext("2d");
 
   if (totalChart) totalChart.destroy();
@@ -482,6 +489,10 @@ async function loadMetrics(since = null) {
         <td>${row.energy_co2_kg.toFixed(2)}</td>
         <td>${row.transport_co2_kg.toFixed(2)}</td>
         <td>${row.total_co2_kg.toFixed(2)}</td>
+        <td>
+          ${row.energy_ref || "-"}<br>
+          ${row.transport_ref || "-"}
+        </td>
       </tr>
     `;
   });

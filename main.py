@@ -117,49 +117,70 @@ async def upload_bill(
 
 @app.get("/metrics")
 def get_metrics(since: Optional[str] = Query(None)):
-    bq_client = bigquery.Client()
 
-    where_clause = ""
+    region = os.environ.get("REGION", "India")
+
+    bq = bigquery.Client()
+
+    # Get emission factors safely
+    energy_factor, energy_ref = get_emission_factor(region, "electricity")
+    transport_factor, transport_ref = get_emission_factor("Global", "freight_truck")
+
+    # Fallback if missing
+    if not energy_factor:
+        energy_factor = 0.82
+        energy_ref = "Default"
+
+    if not transport_factor:
+        transport_factor = 0.0525
+        transport_ref = "Default"
+
+    where = ""
     if since:
-        where_clause = f"WHERE record_date >= DATE('{since}')"
+        where = f"WHERE record_date >= DATE('{since}')"
 
     query = f"""
     SELECT
       o.product_id,
-      p.product_name,
-      p.category,
-      SUM(o.units_sold) AS total_units_sold,
-      SUM(o.energy_kwh) AS total_energy_kwh,
-      SUM(o.transport_km) AS total_transport_km
+      IFNULL(p.product_name, o.product_id) AS product_name,
+      IFNULL(p.category, 'Unknown') AS category,
+      SUM(o.units_sold) AS units,
+      SUM(o.energy_kwh) AS energy,
+      SUM(o.transport_km) AS km
     FROM sustainability_ds.operations o
-    LEFT JOIN sustainability_ds.product_catalogue_table p
+    LEFT JOIN sustainability_ds.product_catalogue p
       ON o.product_id = p.product_id
-    {where_clause}
-    GROUP BY o.product_id, p.product_name, p.category
-    ORDER BY o.product_id
+    {where}
+    GROUP BY o.product_id, product_name, category
+    ORDER BY product_name
     """
 
-    results = bq_client.query(query).result()
+    rows = bq.query(query).result()
 
     data = []
-    for row in results:
+
+    for r in rows:
+
+        units = r.units or 0
+        energy = r.energy or 0
+        km = r.km or 0
+
+        energy_co2 = energy * energy_factor
+        transport_co2 = km * transport_factor
+
         data.append({
-            "product_id": row.product_id,
-            "product_name": row.product_name or row.product_id,
-            "category": row.category or "Unknown",
-            "total_units_sold": row.total_units_sold,
-            "energy_co2_kg": row.total_energy_kwh * 0.82,
-            "transport_co2_kg": row.total_transport_km * 0.0525,
-            "total_co2_kg": (
-                row.total_energy_kwh * 0.82 +
-                row.total_transport_km * 0.0525
-            ),
+            "product_id": r.product_id,
+            "product_name": r.product_name,
+            "category": r.category,
+            "total_units_sold": int(units),
+            "energy_co2_kg": float(energy_co2),
+            "transport_co2_kg": float(transport_co2),
+            "total_co2_kg": float(energy_co2 + transport_co2),
+            "energy_ref": energy_ref,
+            "transport_ref": transport_ref
         })
 
-    return {
-        "count": len(data),
-        "data": data
-    }
+    return {"count": len(data), "data": data}
 
 
 @app.get("/uploads")
@@ -300,34 +321,52 @@ def get_company_kpis():
     }
 
 @app.get("/total-footprint")
-def get_total_footprint():
+def total_footprint():
 
-    bq_client = bigquery.Client()
+    bq = bigquery.Client()
 
     query = """
+    WITH product AS (
+      SELECT
+        FORMAT_DATE('%Y-%m', record_date) AS month,
+        SUM(energy_kwh * 0.82 + transport_km * 0.0525) AS co2
+      FROM sustainability_ds.operations
+      GROUP BY month
+    ),
+
+    utility AS (
+      SELECT
+        FORMAT_DATE('%Y-%m', month) AS month,
+        SUM(estimated_co2) AS co2
+      FROM sustainability_ds.bill_emissions
+      GROUP BY month
+    )
+
     SELECT
-      month,
+      COALESCE(p.month, u.month) AS month,
 
-      SUM(co2) AS total_co2,
+      IFNULL(p.co2, 0) AS product_co2,
+      IFNULL(u.co2, 0) AS utility_co2,
 
-      SUM(CASE WHEN source='product' THEN co2 ELSE 0 END) AS product_co2,
-      SUM(CASE WHEN source='utility' THEN co2 ELSE 0 END) AS utility_co2
+      IFNULL(p.co2, 0) + IFNULL(u.co2, 0) AS total_co2
 
-    FROM sustainability_ds.company_emissions
-    GROUP BY month
-    ORDER BY month
+    FROM product p
+    FULL OUTER JOIN utility u
+      ON p.month = u.month
+
+    ORDER BY month;
     """
 
-    results = bq_client.query(query).result()
+    rows = bq.query(query).result()
 
     data = []
 
-    for row in results:
+    for r in rows:
         data.append({
-            "month": row.month,
-            "total_co2": float(row.total_co2),
-            "product_co2": float(row.product_co2),
-            "utility_co2": float(row.utility_co2)
+            "month": r.month,
+            "product_co2": float(r.product_co2),
+            "utility_co2": float(r.utility_co2),
+            "total_co2": float(r.total_co2)
         })
 
     return {"data": data}
@@ -356,3 +395,23 @@ def reset_all_data():
     """).result()
 
     return {"status": "all_data_cleared"}
+
+def get_emission_factor(region, activity):
+
+    bq = bigquery.Client()
+
+    query = f"""
+    SELECT factor, reference
+    FROM sustainability_ds.emission_factors
+    WHERE region = '{region}'
+      AND activity_type = '{activity}'
+    ORDER BY year DESC
+    LIMIT 1
+    """
+
+    rows = list(bq.query(query).result())
+
+    if not rows:
+        return None, None
+
+    return rows[0].factor, rows[0].reference
