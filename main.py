@@ -1,10 +1,21 @@
-from fastapi import FastAPI, UploadFile, File, Query
+from fastapi import FastAPI, UploadFile, File, Query, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from google.cloud import storage, bigquery
 from typing import Optional
+import io
+import pandas as pd
+from fastapi.responses import StreamingResponse
 import uuid
 import os
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, Image
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.colors import grey, black, lightgrey
+from reportlab.lib.units import inch
+from datetime import datetime
+import base64
+
 
 app = FastAPI()
 
@@ -87,15 +98,41 @@ async def upload_bill(
     amount: float,
     units: float,
     region: str,
-    month: str
+    month: str   # Expecting YYYY-MM
 ):
+
     bq_client = bigquery.Client()
 
     bill_id = str(uuid.uuid4())
 
-    query = f"""
+    # Validate month format (YYYY-MM)
+    if not month or len(month) != 7 or month[4] != "-":
+        return {"error": "Invalid month format. Use YYYY-MM"}
+
+
+    # Emission factors
+    FACTORS = {
+        "electricity": 0.82,
+        "fuel": 2.68,
+        "courier": 0.18
+    }
+
+    factor = FACTORS.get(bill_type, 0.0)
+    estimated_co2 = units * factor
+
+
+    # SAFE month parsing
+    bq_client.query(f"""
     INSERT INTO sustainability_ds.utility_bills
-    (bill_id, bill_type, amount, units, region, month, upload_time)
+    (
+      bill_id,
+      bill_type,
+      amount,
+      units,
+      region,
+      month,
+      upload_time
+    )
     VALUES
     (
       '{bill_id}',
@@ -103,17 +140,18 @@ async def upload_bill(
       {amount},
       {units},
       '{region}',
-      DATE('{month}-01'),
+      PARSE_DATE('%Y-%m-%d', '{month}-01'),
       CURRENT_TIMESTAMP()
     )
-    """
+    """).result()
 
-    bq_client.query(query).result()
 
     return {
         "status": "success",
-        "bill_id": bill_id
+        "bill_id": bill_id,
+        "estimated_co2": estimated_co2
     }
+
 
 @app.get("/metrics")
 def get_metrics(since: Optional[str] = Query(None)):
@@ -256,6 +294,8 @@ def get_trends():
 
     data = []
 
+    prev_cpu = None
+
     for row in results:
 
         total = float(row.total_co2 or 0)
@@ -263,13 +303,20 @@ def get_trends():
 
         cpu = total / units if units > 0 else 0
 
+        trend = None
+        if prev_cpu is not None:
+            trend = round(((cpu - prev_cpu) / prev_cpu) * 100, 2)
+
+        prev_cpu = cpu
+
         data.append({
-            "month": row.month,              # ALWAYS STRING YYYY-MM
-            "total_co2": round(total, 2),
-            "co2_per_unit": round(cpu, 4)
+            "month": row.month,
+            "co2_per_unit": round(cpu, 4),
+            "efficiency_change": trend
         })
 
     return {"data": data}
+
 
 
 @app.get("/bill-insights")
@@ -415,3 +462,196 @@ def get_emission_factor(region, activity):
         return None, None
 
     return rows[0].factor, rows[0].reference
+
+@app.get("/export/excel")
+def export_excel():
+
+    bq = bigquery.Client()
+
+    # Get product metrics
+    metrics_query = """
+    SELECT
+      o.product_id,
+      IFNULL(p.product_name, o.product_id) AS product_name,
+      IFNULL(p.category, 'Unknown') AS category,
+      SUM(o.units_sold) AS units_sold,
+      SUM(o.energy_kwh * 0.82) AS energy_co2,
+      SUM(o.transport_km * 0.0525) AS transport_co2,
+      SUM(o.energy_kwh * 0.82 + o.transport_km * 0.0525) AS total_co2
+    FROM sustainability_ds.operations o
+    LEFT JOIN sustainability_ds.product_catalogue p
+      ON o.product_id = p.product_id
+    GROUP BY o.product_id, product_name, category
+    """
+
+    rows = bq.query(metrics_query).to_dataframe()
+
+
+    # Create Excel in memory
+    output = io.BytesIO()
+
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        rows.to_excel(writer, index=False, sheet_name="Product_Emissions")
+
+    output.seek(0)
+
+
+    headers = {
+        "Content-Disposition": "attachment; filename=carbon_report.xlsx"
+    }
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers
+    )
+
+@app.post("/export/pdf")
+async def export_pdf(request: Request):
+
+    data = await request.json()
+
+    trend_img = data.get("trend")
+    bill_img = data.get("bill")
+    total_img = data.get("total")
+
+    def decode_image(img_base64):
+
+        if not img_base64:
+            return None
+
+        header, encoded = img_base64.split(",", 1)
+
+        return io.BytesIO(base64.b64decode(encoded))
+
+
+    trend_buffer = decode_image(trend_img)
+    bill_buffer = decode_image(bill_img)
+    total_buffer = decode_image(total_img)
+
+
+    bq = bigquery.Client()
+
+    query = """
+    SELECT
+      IFNULL(p.product_name, o.product_id) AS product,
+      IFNULL(p.category, 'Unknown') AS category,
+      SUM(o.units_sold) AS units,
+      SUM(o.energy_kwh * 0.82) AS energy_co2,
+      SUM(o.transport_km * 0.0525) AS transport_co2,
+      SUM(o.energy_kwh * 0.82 + o.transport_km * 0.0525) AS total_co2
+    FROM sustainability_ds.operations o
+    LEFT JOIN sustainability_ds.product_catalogue p
+      ON o.product_id = p.product_id
+    GROUP BY product, category
+    ORDER BY total_co2 DESC
+    """
+
+    rows = list(bq.query(query).result())
+
+
+    buffer = io.BytesIO()
+
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+
+    styles = getSampleStyleSheet()
+    elements = []
+
+
+    # ---------- Title ----------
+    elements.append(Paragraph(
+        "Sustainability Emissions Report",
+        styles["Title"]
+    ))
+
+    elements.append(Spacer(1, 15))
+
+
+    # ---------- Date ----------
+    elements.append(Paragraph(
+        f"Generated on: {datetime.now().strftime('%d %B %Y, %H:%M')}",
+        styles["Normal"]
+    ))
+
+    elements.append(Spacer(1, 20))
+
+
+    # ---------- Charts ----------
+    elements.append(Paragraph("Emission Trends", styles["Heading2"]))
+    elements.append(Spacer(1, 10))
+
+    if trend_buffer:
+        elements.append(Image(trend_buffer, width=450, height=250))
+
+    elements.append(Spacer(1, 20))
+
+
+    elements.append(Paragraph("Utility Emissions", styles["Heading2"]))
+    elements.append(Spacer(1, 10))
+
+    if bill_buffer:
+        elements.append(Image(bill_buffer, width=450, height=250))
+
+    elements.append(Spacer(1, 20))
+
+
+    elements.append(Paragraph("Total Carbon Footprint", styles["Heading2"]))
+    elements.append(Spacer(1, 10))
+
+    if total_buffer:
+        elements.append(Image(total_buffer, width=450, height=250))
+
+    elements.append(PageBreak())
+
+
+    # ---------- Table ----------
+    table_data = [[
+        "Product","Category","Units",
+        "Energy CO₂","Transport CO₂","Total CO₂"
+    ]]
+
+    for r in rows:
+        table_data.append([
+            r.product,
+            r.category,
+            str(int(r.units or 0)),
+            f"{(r.energy_co2 or 0):.2f}",
+            f"{(r.transport_co2 or 0):.2f}",
+            f"{(r.total_co2 or 0):.2f}",
+        ])
+
+
+    table = Table(table_data, repeatRows=1)
+
+    table.setStyle(TableStyle([
+        ("BACKGROUND",(0,0),(-1,0),lightgrey),
+        ("GRID",(0,0),(-1,-1),0.5,grey),
+        ("FONT",(0,0),(-1,0),"Helvetica-Bold"),
+        ("ALIGN",(2,1),(-1,-1),"CENTER"),
+    ]))
+
+
+    elements.append(table)
+
+
+    elements.append(Spacer(1, 20))
+
+    elements.append(Paragraph(
+        "Generated by Sustainability Analytics Platform",
+        styles["Italic"]
+    ))
+
+
+    doc.build(elements)
+
+    buffer.seek(0)
+
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition":
+            "attachment; filename=sustainability_report.pdf"
+        }
+    )

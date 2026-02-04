@@ -3,3 +3,8 @@ uvicorn
 google-cloud-storage
 google-cloud-bigquery
 python-multipart
+pandas
+xlsxwriter
+pyarrow
+db-dtypes
+reportlab

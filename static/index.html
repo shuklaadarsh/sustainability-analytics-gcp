@@ -7,144 +7,447 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
-    body { font-family: Arial; margin: 40px; }
-    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-    th { background-color: #f4f4f4; }
-    .cards { display: flex; gap: 20px; margin-top: 20px; }
-    .card { padding: 20px; border: 1px solid #ddd; width: 30%; }
-    #filterBanner { margin-top:15px; padding:10px; background:#eef; display:none; }
+    body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  background: #f7f9fc;
+}
+
+.header {
+  background: #1f2937;
+  color: white;
+  padding: 20px 40px;
+}
+
+.panel {
+  background: white;
+  margin: 20px 40px;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+
+.upload-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.filters {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.cards {
+  display: flex;
+  gap: 20px;
+  margin: 20px 40px;
+}
+
+.card {
+  flex: 1;
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+  text-align: center;
+  font-weight: bold;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th, td {
+  padding: 10px;
+  border: 1px solid #eee;
+  text-align: center;
+}
+
+th {
+  background: #f1f5f9;
+}
+
+button {
+  padding: 8px 14px;
+  cursor: pointer;
+  border: none;
+  background: #2563eb;
+  color: white;
+  border-radius: 4px;
+}
+
+button:hover {
+  background: #1d4ed8;
+}
+
+button:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+button.danger {
+  background: #dc2626;
+}
+
+#loading {
+  text-align: center;
+  padding: 15px;
+  display: none;
+  font-weight: bold;
+}
+
+.actions-bar {
+  margin: 40px;
+  display: flex;
+  gap: 15px;
+}
+
   </style>
 </head>
 
 <body>
 
-<h2>Sustainability Insights Dashboard</h2>
+<!-- ================= HEADER ================= -->
 
-<button style="color:red" onclick="resetAll()">
-  Reset All Data
+<header class="header">
+  <h2>🌱 Sustainability Analytics Dashboard</h2>
+</header>
+
+
+<!-- ================= UPLOAD PANEL ================= -->
+
+<div class="panel">
+
+  <h3>Data Upload</h3>
+
+  <div class="upload-row">
+
+    <input type="file" id="fileInput">
+    <button onclick="upload()">Upload Sales Data</button>
+
+    <button class="danger" onclick="resetAll()">
+      Reset System
+    </button>
+
+  </div>
+
+</div>
+
+
+<!-- ================= UTILITY PANEL ================= -->
+
+<div class="panel">
+
+  <h3>Utility Bills</h3>
+
+  <div class="upload-row">
+
+    <select id="billType">
+      <option value="electricity">Electricity</option>
+      <option value="fuel">Fuel</option>
+      <option value="courier">Courier</option>
+    </select>
+
+    <input type="number" id="billAmount" placeholder="Amount">
+
+    <input type="number" id="billUnits" placeholder="Units">
+
+    <input type="text" id="billRegion" placeholder="Region">
+
+    <input type="month" id="billMonth">
+
+    <button onclick="uploadBill()">Upload Bill</button>
+
+  </div>
+
+</div>
+
+
+<!-- ================= FILTER BAR ================= -->
+
+<div class="panel filters">
+
+  <label>From:</label>
+  <input type="month" id="fromMonth">
+
+  <label>To:</label>
+  <input type="month" id="toMonth">
+
+  <label>Category:</label>
+
+  <select id="categoryFilter">
+    <option value="">All</option>
+    <option value="Apparel">Apparel</option>
+    <option value="Electronics">Electronics</option>
+  </select>
+
+  <button onclick="applyFilters()">Apply Filters</button>
+
+</div>
+
+
+<!-- ================= LOADING ================= -->
+
+<div id="loading">Processing data...</div>
+
+
+<!-- ================= KPI CARDS ================= -->
+
+<div class="cards">
+
+  <div class="card" id="totalCo2">
+    Total CO₂: -
+  </div>
+
+  <div class="card" id="topProduct">
+    Top Product: -
+  </div>
+
+  <div class="card" id="totalUnits">
+    Total Units: -
+  </div>
+
+</div>
+
+
+<!-- ================= CHARTS ================= -->
+
+<div class="panel">
+
+  <h3>Emission Trends</h3>
+
+  <canvas id="trendChart"></canvas>
+
+</div>
+
+
+<div class="panel">
+
+  <h3>Utility Emissions</h3>
+
+  <canvas id="billChart"></canvas>
+
+</div>
+
+
+<div class="panel">
+
+  <h3>Total Company Footprint</h3>
+
+  <canvas id="totalFootprintChart"></canvas>
+
+</div>
+
+
+<!-- ================= DATA TABLE ================= -->
+
+<div class="panel">
+
+  <h3>Product Emissions</h3>
+
+  <table id="metricsTable">
+    <thead>
+      <tr>
+        <th>Product</th>
+        <th>Category</th>
+        <th>Units</th>
+        <th>Energy CO₂</th>
+        <th>Transport CO₂</th>
+        <th>Total CO₂</th>
+        <th>Sources</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+</div>
+
+
+<!-- ================= UPLOAD HISTORY ================= -->
+
+<div class="panel">
+
+  <h3>Upload History</h3>
+
+  <table id="uploadTable">
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>File</th>
+        <th>Rows</th>
+        <th>Status</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+</div>
+
+
+<!-- ================= ACTION BAR ================= -->
+
+<div class="actions-bar">
+
+  <button onclick="downloadPDF()">
+  Download PDF
 </button>
 
-<input type="file" id="fileInput">
-<button onclick="upload()">Upload & Generate Insights</button>
-<hr>
+  <button onclick="downloadExcel()">
+  Export Excel
+</button>
 
-<h3>Upload Utility Bill</h3>
 
-<select id="billType">
-  <option value="electricity">Electricity</option>
-  <option value="fuel">Fuel</option>
-  <option value="courier">Courier</option>
-</select>
-
-<input type="number" id="billAmount" placeholder="Amount Paid">
-
-<input type="number" id="billUnits" placeholder="Units (kWh / L / km)">
-
-<input type="text" id="billRegion" placeholder="Region (India / EU / US)">
-
-<input type="month" id="billMonth">
-
-<button onclick="uploadBill()">Upload Bill</button>
-
-<hr>
-
-<div id="filterBanner">
-  <span id="filterText"></span>
-  <button onclick="resetFilter()" style="margin-left:20px;">
-    Reset to All-time
-  </button>
 </div>
-
-<!-- KPI Cards -->
-<div class="cards">
-  <div class="card" id="totalCo2">Total CO₂: -</div>
-  <div class="card" id="topProduct">Top Product: -</div>
-  <div class="card" id="totalUnits">Total Units: -</div>
-</div>
-
-<!-- Trend Chart -->
-<h3>Monthly CO₂ Trend</h3>
-<canvas id="trendChart" height="120" width="800"></canvas>
-
-<h3>Utility Bill CO₂ Trend</h3>
-<canvas id="billChart" height="120" width="800"></canvas>
-
-<h3>Total Company Carbon Footprint</h3>
-<canvas id="totalFootprintChart" height="120"></canvas>
-
-
-
-
-<!-- Metrics Table -->
-<table id="metricsTable">
-  <thead>
-    <tr>
-      <th>Product</th>
-      <th>Category</th>
-      <th>Units</th>
-      <th>Energy CO₂</th>
-      <th>Transport CO₂</th>
-      <th>Total CO₂</th>
-      <th>Sources</th>
-    </tr>
-  </thead>
-  <tbody></tbody>
-</table>
-
-
-<!-- Upload History -->
-<h3>Upload History</h3>
-
-<table id="uploadTable">
-  <thead>
-    <tr>
-      <th>Upload Time</th>
-      <th>File Name</th>
-      <th>Rows Loaded</th>
-      <th>Status</th>
-      <th>Action</th>
-    </tr>
-  </thead>
-  <tbody></tbody>
-</table>
 
 <script>
+
+function getChartImages() {
+
+  const charts = {};
+
+  if (trendChart)
+    charts.trend = trendChart.toBase64Image();
+
+  if (billChart)
+    charts.bill = billChart.toBase64Image();
+
+  if (totalChart)
+    charts.total = totalChart.toBase64Image();
+
+  return charts;
+}
+
+async function downloadPDF() {
+
+  showLoading();
+
+  const charts = getChartImages();
+
+  const res = await fetch("/export/pdf", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(charts)
+  });
+
+  const blob = await res.blob();
+
+  hideLoading();
+
+  const url = window.URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "sustainability_report.pdf";
+  a.click();
+}
+
+
+function downloadExcel() {
+
+  window.location.href = "/export/excel";
+
+}
+
+let dashboardState = {
+  from: null,
+  to: null,
+  category: null
+};
+
+function showLoading() {
+  document.getElementById("loading").style.display = "block";
+}
+
+function hideLoading() {
+  document.getElementById("loading").style.display = "none";
+}
+
+
+function applyFilters() {
+
+  dashboardState.from =
+    document.getElementById("fromMonth").value;
+
+  dashboardState.to =
+    document.getElementById("toMonth").value;
+
+  dashboardState.category =
+    document.getElementById("categoryFilter").value;
+
+  refreshDashboard();
+}
+
 
 async function resetAll() {
 
   if (!confirm("This will DELETE ALL DATA. Continue?")) return;
 
-  const res = await fetch("/reset-all", {
-    method: "DELETE"
-  });
+  try {
 
-  if (!res.ok) {
-    alert("Reset failed");
-    return;
+    const res = await fetch("/reset-all", {
+      method: "DELETE"
+    });
+
+    if (!res.ok) {
+      alert("Reset failed");
+      return;
+    }
+
+    alert("All data cleared");
+
+    // Reload everything
+    location.reload();
+
+  } catch (err) {
+    console.error(err);
+    alert("Network error");
+  }
+}
+
+async function refreshWithRetry(retries = 4, delay = 1500) {
+
+  for (let i = 0; i < retries; i++) {
+
+    try {
+      await refreshDashboard();
+
+      // Wait for BigQuery sync
+      await new Promise(r => setTimeout(r, delay));
+
+      // Check if footprint has data
+      const res = await fetch("/total-footprint");
+      const json = await res.json();
+
+      if (json.data && json.data.length >= 0) {
+        return;
+      }
+
+    } catch (err) {
+      console.warn("Retry failed", err);
+    }
   }
 
-  alert("All data cleared");
+  console.warn("Dashboard refresh delayed");
+}
 
-  // Clear tables
-  document.querySelector("#metricsTable tbody").innerHTML = "";
-  document.querySelector("#uploadTable tbody").innerHTML = "";
+async function refreshDashboard() {
 
-  // Destroy charts
-  if (trendChart) trendChart.destroy();
-  if (billChart) billChart.destroy();
-  if (totalChart) totalChart.destroy();
+  showLoading();
 
-  trendChart = null;
-  billChart = null;
-  totalChart = null;
-
-  // Reload empty state
-  await loadMetrics();
+  await loadMetrics(null);
   await loadUploadHistory();
   await loadTrends();
   await loadBillTrends();
   await loadTotalFootprint();
+  await loadCompanyKpis();
+
+  hideLoading();
 }
 
 let totalChart = null;
@@ -298,80 +601,73 @@ let trendChart = null;
 
 async function loadTrends() {
 
-  try {
+  const res = await fetch("/trends");
+  const json = await res.json();
+  const data = json.data;
 
-    const res = await fetch("/trends");
-    const json = await res.json();
-    const data = json.data;
+  if (!data || data.length === 0) return;
 
-    if (!data || data.length === 0) {
-      console.log("No monthly trend data");
-      return;
-    }
+  const labels = data.map(d => d.month);
 
-    // NEVER parse as Date
-    const labels = data.map(d => String(d.month));
+  const cpu = data.map(d => d.co2_per_unit);
 
-    const total = data.map(d => Number(d.total_co2 || 0));
-    const cpu = data.map(d => Number(d.co2_per_unit || 0));
+  const avg = cpu.map((v,i,arr)=>{
+    if(i<2) return null;
+    return ((arr[i]+arr[i-1]+arr[i-2])/3).toFixed(3);
+  });
 
-    const canvas = document.getElementById("trendChart");
+  const ctx = document
+    .getElementById("trendChart")
+    .getContext("2d");
 
-    if (!canvas) {
-      console.error("trendChart canvas missing");
-      return;
-    }
+  if (trendChart) trendChart.destroy();
 
-    const ctx = canvas.getContext("2d");
+  trendChart = new Chart(ctx, {
 
-    if (trendChart) trendChart.destroy();
+    type: "line",
 
-    trendChart = new Chart(ctx, {
+    data: {
+      labels,
 
-      type: "line",
-
-      data: {
-        labels: labels,
-
-        datasets: [
-          {
-            label: "Total CO₂ (kg)",
-            data: total,
-            borderColor: "#4e79a7",
-            tension: 0.3
-          },
-          {
-            label: "CO₂ per Unit",
-            data: cpu,
-            borderColor: "#e15759",
-            tension: 0.3
-          }
-        ]
-      },
-
-      options: {
-        responsive: true,
-        plugins: {
-          legend: { position: "top" }
+      datasets: [
+        {
+          label: "CO₂ per Unit",
+          data: cpu,
+          borderColor: "#4e79a7",
+          tension: 0.3
         },
-        scales: {
-          y: {
-            title: {
-              display: true,
-              text: "CO₂"
-            }
+        {
+          label: "3-Month Avg",
+          data: avg,
+          borderColor: "#59a14f",
+          borderDash: [5,5],
+          tension: 0.3
+        }
+      ]
+    },
+
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: "top" }
+      },
+      scales: {
+        y: {
+          title: {
+            display: true,
+            text: "CO₂ / Unit"
           }
         }
       }
-    });
-
-  } catch (err) {
-    console.error("Trend load failed", err);
-  }
+    }
+  });
 }
 
 
 async function uploadBill() {
+
+  showLoading();
+
 
   const type = document.getElementById("billType").value;
   const amount = document.getElementById("billAmount").value;
@@ -381,6 +677,7 @@ async function uploadBill() {
 
   if (!type || !units || !month) {
     alert("Fill all bill fields");
+    hideLoading();
     return;
   }
 
@@ -402,12 +699,15 @@ async function uploadBill() {
 
     if (!res.ok) {
       alert("Bill upload failed");
+      hideLoading();
       return;
     }
 
     alert("Bill uploaded");
 
-    loadBillTrends();
+    await refreshWithRetry();
+
+
 
   } catch (err) {
     console.error(err);
@@ -419,10 +719,14 @@ async function uploadBill() {
 /* ================= UPLOAD ================= */
 
 async function upload() {
+
+  showLoading();
+
   const file = document.getElementById('fileInput').files[0];
 
   if (!file) {
     alert("Please select a file");
+    hideLoading();
     return;
   }
 
@@ -439,14 +743,15 @@ async function upload() {
 
     if (!res.ok || result.error) {
       alert("Upload failed: " + (result.details || "Unknown error"));
+      hideLoading();
       return;
     }
 
     alert("Upload successful");
 
-    await loadMetrics();
-    await loadUploadHistory();
-    await loadTrends();   // ✅ refresh chart
+    await refreshWithRetry();
+
+
 
   } catch (err) {
     alert("Network error");
@@ -589,21 +894,14 @@ async function deleteUpload(uploadId) {
   alert("Upload deleted");
 
   resetFilter();
-  loadUploadHistory();
-  loadTrends();
-}
+  await refreshDashboard();
 
+}
 
 /* ================= INIT ================= */
 
 window.onload = async () => {
-
-  await loadMetrics(null);
-  await loadUploadHistory();
-  await loadTrends();
-  await loadBillTrends();
-  await loadTotalFootprint();
-  await loadCompanyKpis();
+  await refreshWithRetry();
 };
 
 </script>
